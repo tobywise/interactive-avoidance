@@ -231,7 +231,7 @@ def fit_policy_learning(alpha:float, args:List) -> float:
 
     Args:
         alpha (float): Learning rate.
-        args (List): Other arguments. 1: Predator trajectory, 2: MDP, 
+        args (List): Other arguments. 1: Predator trajectories, 2: MDPs, 
         3: Subject's predicted actions, 4: Whether to use generalisation kernel
 
     Returns:
@@ -243,10 +243,11 @@ def fit_policy_learning(alpha:float, args:List) -> float:
         
     predator_t, target_mdp, predicted_a, kernel = args
     
-    _, Q_estimates, _ = action_prediction(predator_t, target_mdp, TDGeneralPolicyLearner(learning_rate=alpha, kernel=kernel), 
-                                          action_selector=MaxActionSelector(seed=123))
+    _, Q_estimates, _ = action_prediction_envs(predator_t, target_mdp, 
+                                               TDGeneralPolicyLearner(learning_rate=alpha, kernel=kernel), 
+                                               action_selector=MaxActionSelector(seed=123))
 
-    logp = prediction_likelihood(Q_estimates, predicted_a)    
+    logp = prediction_likelihood(np.stack(Q_estimates).flatten(), np.stack(predicted_a).flatten())
 
     return -logp
 
