@@ -8,7 +8,7 @@ from scipy.stats import zscore
 from scipy.optimize import minimize
 from typing import List, Union, Dict, Tuple
 import pandas as pd
-from copy import deepcopy
+from copy import copy, deepcopy
 
 def minmax_scale(X, min_val=0, max_val=1):
     """ Adapted copy of https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.MinMaxScaler.html"""
@@ -19,44 +19,67 @@ def minmax_scale(X, min_val=0, max_val=1):
 
     return X_scaled
 
+def check_mdp_equal(mdp1, mdp2):
+    """ Checks whether two MDPs are the same based on features and transition matrix  """
+
+    if not isinstance(mdp1, MDP) or not isinstance(mdp2, MDP):
+        return False
+    
+    elif (mdp1.features == mdp2.features).all() and (mdp1.sas == mdp2.sas).all():
+        return True
+    else:
+        return False
+
 
 class VIPolicyLearner(BaseGeneralPolicyLearner):
     """ Used to make VI-based action prediction work more nicely"""
 
-    def __init__(self, VI_instance:ValueIteration, reward_weights:np.ndarray, refit:bool=True):
+    def __init__(self, VI_instance:ValueIteration, reward_weights:np.ndarray, refit_on_new_mdp:bool=True, caching:bool=False):
         """
         Estimates Q values for actions 
 
         Args:
             VI_instance (ValueIteration): Instantiated instance of the value iteration algorithm.
             reward_weights (np.ndarray): Reward weights used to calculate reward function for VI.
-            refit (bool, optional): If true, calling fit() refits the model even if it was already fit. Otherwise, 
-            fit() does nothing. Defaults to True.
+            refit_on_new_mdp (bool, optional): If true, refits the model whenever fit() is provided with an MDP that differs
+            from the previous one.
         """
 
         self.VI = VI_instance
         self.reward_weights = reward_weights
         self.q_values = None
-        self.fit_complete = False
-        self.refit = refit
+        self.refit_on_new_mdp = refit_on_new_mdp
+        self.caching = caching
+        self.previous_mdp = None
+        self.previous_mdp_q_values = {}
         
     def reset(self):
         self.q_values = None
-        self.fit_complete = False
 
-    def fit(self, mdp:Union[MDP, List[MDP]], trajectories:list):
+    def fit(self, mdp:MDP, trajectories:list):
         """Estimates Q values
 
         Args:
-            mdp (Union[MDP, List[MDP]]): MDP in which the agent is acting.
+            mdp (MDP): MDP in which the agent is acting.
             trajectories (list): List of trajectories. Not used but retained for compatibility.
         """
 
-        if not self.fit_complete or self.refit:
-            self.VI.fit(mdp, self.reward_weights, None, None)
-            self.q_values = self.VI.q_values
+        if not check_mdp_equal(mdp, self.previous_mdp):
+            cached_found = False
+            # TODO seems like there are things in cache without having added to cache
+            if self.caching:
+                for m, q in self.previous_mdp_q_values.items():
+                    if check_mdp_equal(mdp, m):
+                        self.q_values = q
+                        cached_found = True
+            if not cached_found:
+                self.VI.fit(mdp, self.reward_weights, None, None)
+                self.q_values = self.VI.q_values
+                if self.caching:
+                    self.previous_mdp_q_values[mdp] = self.q_values.copy()
 
-            self.fit_complete = True
+            self.previous_mdp = mdp
+            
 
     def get_q_values(self, state: int) -> np.ndarray:
         """
@@ -74,11 +97,19 @@ class VIPolicyLearner(BaseGeneralPolicyLearner):
 
         return Q_values
 
+    def copy(self):
+        
+        # Copy without previous MDP to avoid picking error
+        new_model = VIPolicyLearner(deepcopy(self.VI), copy(self.reward_weights), self.refit_on_new_mdp)
+        new_model.q_values = self.q_values.copy()
+        new_model.previous_mdp = None
+
+        return new_model
+
 
 class CombinedPolicyLearner(BaseGeneralPolicyLearner):
 
-    def __init__(self, model1:BaseGeneralPolicyLearner, model2:BaseGeneralPolicyLearner, W:float=0.5, scale:bool=True,#
-                refit_model1:bool=True, refit_model2:bool=True):
+    def __init__(self, model1:BaseGeneralPolicyLearner, model2:BaseGeneralPolicyLearner, W:float=0.5, scale:bool=True):
         """
         Produces a weighted combination of Q value estimates from two models.
 
@@ -88,21 +119,10 @@ class CombinedPolicyLearner(BaseGeneralPolicyLearner):
             W (float, optional): Weighting parameter, lower values give Model 1 more weight. Defaults to 0.5.
             scale (bool, optional): If true, Q values from each model are minmax scaled to enable comparability between the two models. 
             Defaults to True.
-            refit_model1 (bool, optional): If true, Model 1 is re-fit every time fit() is called. Otherwise, the Q values from
-            prior fit() calls are reused. Defaults to True.
-            refit_model2 (bool, optional): If true, Model 2 is re-fit every time fit() is called. Otherwise, the Q values from
-            prior fit() calls are reused. Defaults to True.
         """
 
         self.model1 = model1
         self.model2 = model2
-
-        self.model1_fit_complete = False
-        self.model2_fit_complete = False
-        self.fit_complete = False
-        
-        self.refit_model1 = refit_model1
-        self.refit_model2 = refit_model2
 
         if not 0 <= W <= 1:
             raise ValueError("W must be between 0 and 1 (inclusive)")
@@ -114,11 +134,6 @@ class CombinedPolicyLearner(BaseGeneralPolicyLearner):
 
         self.model1.reset()
         self.model2.reset()
-
-        self.model1_fit_complete = False
-        self.model2_fit_complete = False
-
-        self.fit_complete = False
 
     def fit(self, mdp:Union[MDP, List[MDP]], trajectories:list):
         """Estimates Q values
@@ -135,12 +150,8 @@ class CombinedPolicyLearner(BaseGeneralPolicyLearner):
             raise NotImplementedError()
 
         # Fit both models
-        if not self.model1_fit_complete or self.refit_model1:
-            self.model1.fit(mdp, trajectories)
-            self.model1_fit_complete = True
-        if not self.model2_fit_complete or self.refit_model2:
-            self.model2.fit(mdp, trajectories)
-            self.model2_fit_complete = True
+        self.model1.fit(mdp, trajectories)
+        self.model2.fit(mdp, trajectories)
 
         self.fit_complete = True
 
@@ -168,6 +179,14 @@ class CombinedPolicyLearner(BaseGeneralPolicyLearner):
         overall_Q = (1-self.W) * np.nan_to_num(model1_Q_scaled) + self.W * np.nan_to_num(model2_Q_scaled)
 
         return overall_Q
+
+    def copy(self):
+
+        model1_copy = self.model1.copy()
+        model2_copy = self.model2.copy()
+
+        new_model = CombinedPolicyLearner(model1_copy, model2_copy, self.W, self.scale)
+        return new_model
 
 
 def nan_softmax(x:np.ndarray, return_nans:bool=False) -> np.ndarray:
@@ -232,7 +251,8 @@ def fit_policy_learning(alpha:float, args:List) -> float:
     Args:
         alpha (float): Learning rate.
         args (List): Other arguments. 1: Predator trajectories, 2: MDPs, 
-        3: Subject's predicted actions, 4: Whether to use generalisation kernel
+        3: Subject's predicted actions, 4: Whether to use generalisation kernel, 5: Whether to reset the model
+        for each environment
 
     Returns:
         float: Log likelihood
@@ -241,13 +261,14 @@ def fit_policy_learning(alpha:float, args:List) -> float:
     if np.isnan(alpha):
         alpha = 0.001
         
-    predator_t, target_mdp, predicted_a, kernel = args
+    predator_t, target_mdp, predicted_a, kernel, env_reset = args
     
     _, Q_estimates, _ = action_prediction_envs(predator_t, target_mdp, 
                                                TDGeneralPolicyLearner(learning_rate=alpha, kernel=kernel), 
-                                               action_selector=MaxActionSelector(seed=123))
+                                               action_selector=MaxActionSelector(seed=123),
+                                               env_reset=env_reset)
 
-    logp = prediction_likelihood(np.stack(Q_estimates).flatten(), np.stack(predicted_a).flatten())
+    logp = prediction_likelihood(np.vstack(Q_estimates), np.hstack(predicted_a))
 
     return -logp
 
@@ -259,7 +280,8 @@ def fit_combined_model(W:float, args:List):
     Args:
         W (float): Weighting parameter, higher = higher weighting of policy learning.
         args (List): Other arguments. 1: Predator trajectory, 2: MDP, 
-        3: Subject's predicted actions, 4: Value iteration model, 5: Learning rate, 6: Whether to scale Q values
+        3: Subject's predicted actions, 4: Value iteration model, 5: Learning rate, 6: Whether
+        to reset the model for each environment
 
     Returns:
         float: Log likelihood
@@ -269,15 +291,16 @@ def fit_combined_model(W:float, args:List):
     if np.isnan(W):
         W = 0.001
         
-    predator_t, target_mdp, predicted_a, model1, learning_rate, decay = args
+    predator_t, target_mdp, predicted_a, model1, learning_rate, decay, env_reset = args
     
     model2 = TDGeneralPolicyLearner(learning_rate=learning_rate, decay=decay)
     
-    _, Q_estimates, _ = action_prediction(predator_t, target_mdp, 
-                                         CombinedPolicyLearner(model1, model2, W=W), 
-                                         action_selector=MaxActionSelector(seed=123))
+    _, Q_estimates, _ = action_prediction_envs(predator_t, target_mdp, 
+                                               CombinedPolicyLearner(model1, model2, W=W), 
+                                               action_selector=MaxActionSelector(seed=123),
+                                               env_reset=env_reset)
 
-    logp = prediction_likelihood(Q_estimates, predicted_a)    
+    logp = prediction_likelihood(np.vstack(Q_estimates), np.hstack(predicted_a)) 
     
     return -logp
 
@@ -289,7 +312,8 @@ def fit_combined_model_learning_rate(X: Tuple[float], args:List):
     Args:
         X (Tuple): Weighting parameter and learning rate.
         args (List): Other arguments. 1: Predator trajectory, 2: MDP, 
-        3: Subject's predicted actions, 4: Value iteration model, 5: Whether to use a generalisation kernel.
+        3: Subject's predicted actions, 4: Value iteration model, 5: Whether to use a generalisation kernel, 6: Whether
+        to reset the model for each environment
 
     Returns:
         float: Log likelihood
@@ -302,17 +326,28 @@ def fit_combined_model_learning_rate(X: Tuple[float], args:List):
     if np.isnan(alpha):
         W = 0.001
         
-    predator_t, target_mdp, predicted_a, model1, kernel = args
+    predator_t, target_mdp, predicted_a, model1, kernel, env_reset = args
     
     model2 = TDGeneralPolicyLearner(learning_rate=alpha, kernel=kernel)
     
-    _, Q_estimates, _ = action_prediction(predator_t, target_mdp, 
+    _, Q_estimates, _ = action_prediction_envs(predator_t, target_mdp, 
                                           CombinedPolicyLearner(model1, model2, W=W), 
-                                          action_selector=MaxActionSelector(seed=123))
-    
-    logp = prediction_likelihood(Q_estimates, predicted_a)    
+                                          action_selector=MaxActionSelector(seed=123),
+                                          env_reset=env_reset)
+
+    logp = prediction_likelihood(np.vstack(Q_estimates), np.hstack(predicted_a))  
     
     return -logp
+
+"""
+Learning models - not reset each environment (but could be), not reset for different MDPs
+Goal inference model - reset for each environment, reset for different MDPs
+
+Goal inference / learning models - goal inference reset for each environment, learning not (but could)
+                                   goal inference reset for different MDPs, learning not
+
+
+"""
 
 def nan_to_zero(x:np.ndarray):
     """Removes nans and infs from an array"""
@@ -393,7 +428,7 @@ def action_prediction(trajectory:List[int], mdp:MDP, policy_model:BaseGeneralPol
         Union[np.ndarray, np.ndarray, np.ndarray]: Returns most recent Q value estimates for each action, Q estimates at every step,
         and predicted actions at every step.
     """
-    # TODO determine refitting before calling this function and store information in policy model refit attribute
+
     if action_selector is None:
         action_selector = MaxActionSelector(seed=123)
 
@@ -417,9 +452,9 @@ def action_prediction(trajectory:List[int], mdp:MDP, policy_model:BaseGeneralPol
     predictions = []
     predicted_state = state[0]
 
-    # Fit the model to get starting Q values before any observations (if it hasn't already been fit)
-    if not policy_model.fit_complete:
-        policy_model.fit(mdp[0], [[]])  # Using an empty trajectory means learning models produce Q values of zero for all actions
+    # Fit the model to get starting Q values before any observations 
+    # Using an empty trajectory means learning models produce Q values of zero for all actions if they've not been fit already
+    policy_model.fit(mdp[0], [[]])  
 
     # Loop through agent moves
     for n in range(len(action)):
@@ -430,7 +465,11 @@ def action_prediction(trajectory:List[int], mdp:MDP, policy_model:BaseGeneralPol
             start_state = state[n]
 
             # Preserve model state from first prediction to allow real model to update on every move without affecting predictions
-            temp_policy_learner = deepcopy(policy_model)
+            try:
+                temp_policy_learner = policy_model.copy()
+            except Exception as e:
+                print(policy_model.model1.previous_mdp, policy_model.model1.q_values)
+                raise e
 
         else:
             # Otherwise the next prediction follows from the previous predicted one
@@ -467,184 +506,3 @@ def action_prediction(trajectory:List[int], mdp:MDP, policy_model:BaseGeneralPol
 
 # TODO add tests for these functions. Please. It'll save you pain in the long run.
 
-
-# Make sure VI-based is using a new MDP each step when it should
-
-def fit_action_prediction_model(model_name:str, predator_trajectory:List[int], mdps:List[MDP], 
-                                predicted_actions:List[int], model:str, learning_rate:float=None, kernel:bool=False,
-                                predator_reward_function:np.ndarray=None) -> Union[float, Dict]:
-
-    # Output parameters as a dict of names and values
-    estimated_parameters = {}
-
-    # If model 2 is None, we're only fitting a single model rather than a combination
-    if model == 'policy_learning':
-        
-        # If a fixed learning rate is provided
-        if learning_rate is not None:
-            
-            # Get Q estimates for each action 
-            _, Q_estimates, _ = action_prediction(predator_trajectory, mdps, 
-                                                    TDGeneralPolicyLearner(learning_rate=learning_rate), 
-                                                    action_selector=MaxActionSelector(seed=123))
-
-        else:
-            
-            # Estimate learning rate
-            res = minimize(fit_policy_learning, [0.5], args=[predator_trajectory, mdps, predicted_actions, kernel], 
-                            bounds=[(0.001, 0.999)])
-
-            # Save estimated learning rate
-            estimated_parameters['learning_rate'] = res.x[0]
-
-            # Get Q estimates for each action 
-            _, Q_estimates, _ = action_prediction(predator_trajectory, mdps, 
-                                                    TDGeneralPolicyLearner(learning_rate=res.x[0]), 
-                                                    action_selector=MaxActionSelector(seed=123))
-
-    elif model == 'value_iteration':
-
-        if predator_reward_function is None:
-            raise ValueError("Must provide a predator reward function if using value iteration")
-
-        # Get Q estimates for each action 
-        _, Q_estimates, _ = action_prediction(predator_trajectory, mdps, 
-                                                VIPolicyLearner(ValueIteration(), predator_reward_function), 
-                                                action_selector=MaxActionSelector(seed=123))
-
-    elif model == 'combined':
-
-        # Set up the VI model used in the combined model
-        VI_model = VIPolicyLearner(ValueIteration(), predator_reward_function)
-
-        if learning_rate is not None:
-
-            # Estimate W parameter
-            res = minimize(fit_combined_model, [0.5], args=[predator_trajectory, mdps, predicted_actions, 
-                           VI_model, learning_rate], 
-                           bounds=[(0, 1)], options=dict(eps=1e-2))
-
-            # Save estimated learning rate
-            estimated_parameters['W'] = res.x[0]
-
-            # Get Q estimates for each action 
-            _, Q_estimates, _ = action_prediction(predator_trajectory, mdps, 
-                                                 CombinedPolicyLearner(VI_model, 
-                                                 TDGeneralPolicyLearner(learning_rate=learning_rate), W=res.x[0], scale=True), 
-                                                 action_selector=MaxActionSelector(seed=123))
-
-        else:
-            
-            # Estimate W and learning rate
-            res = minimize(fit_combined_model_learning_rate, [0.5, 0.5], args=[predator_trajectory, mdps, 
-                            predicted_actions, VI_model, kernel], bounds=[(0, 1), (0.001, 1)], options=dict(eps=1e-2))
-
-            # Save estimated learning rate
-            estimated_parameters['W'] = res.x[0]
-            estimated_parameters['learning_rate'] = res.x[1]
-
-            # Get Q estimates for each action 
-            _, Q_estimates, _ = action_prediction(predator_trajectory, mdps, 
-                                                 CombinedPolicyLearner(VI_model, TDGeneralPolicyLearner(learning_rate=res.x[1]), 
-                                                 W=res.x[0], scale=True), 
-                                                 action_selector=MaxActionSelector(seed=123))
-
-    # Get log likelihood of model
-    log_likelihood = prediction_likelihood(Q_estimates, predicted_actions)
-
-    # Dictionary of outputs
-    out_dict = {'model_name': model_name,
-                'log_likelihood': log_likelihood,
-                'estimated_parameters': estimated_parameters,
-                'n_parameters': len(estimated_parameters),
-                'Q_estimates': Q_estimates}
-
-    return out_dict
-
-def fit_all_action_prediction_models(predator_dfs:pd.DataFrame, prediction_dfs:pd.DataFrame, 
-                                     prey_dfs:pd.DataFrame, environments:Dict, prey_value_conditions:List=[3]) -> None:
-
-    # THIS ALL ASSUMES PREDATOR MAKES TWO MOVES
-
-    # Dictionaries for outputs
-    accuracy = {}
-    log_lik = {}
-    w_values = {}
-
-    # Loop over subjects
-    for subject in predator_dfs['subjectID'].unique():
-
-        # Get subject-level data
-        subject_predator_df = predator_dfs[predator_dfs['subjectID'] == subject]
-        subject_prediction_df = prediction_dfs[prediction_dfs['subjectID'] == subject]
-        subject_prey_df = prey_dfs[prey_dfs['subjectID'] == subject]
-
-        # Ignore subjects with missing trials and subjects who somehow did multiple conditions
-        if not (subject_predator_df['trial'].diff() > 1).any() or not len(subject_predator_df['condition'].unique()) == 1:
-            
-            accuracy[subject] = {}
-            log_lik[subject] = {}
-            w_values[subject] = {}
-        
-            # Loop through environments
-            for env in subject_predator_df['env'].unique():
-                
-                # Get condition for this subject
-                condition = subject_predator_df['condition'].tolist()[0]
-                
-                # Add an entry to the dictionary for this condition if it doesn't already exist
-                if not condition in accuracy[subject]:
-                    accuracy[subject][condition] = {}
-                    log_lik[subject][condition] = {}
-                    w_values[subject][condition] = {}
-                
-                # Get data for this environment
-                subject_env_predator_df = subject_predator_df[subject_predator_df['env'] == env]
-                subject_env_prediction_df = subject_prediction_df[subject_prediction_df['env'] == env]
-                subject_env_prey_df = subject_prey_df[subject_prey_df['env'] == env]
-                
-                # Add predator starting state and get trajectory
-                predator_trajectory = [environments[condition][env].agents['Predator_1'].position] + subject_env_predator_df['cellID'].tolist()
-                
-                # The trajectory predicted by the subject
-                predicted_trajectory = subject_env_prediction_df['cellIDpred'].tolist()
-
-                # Get the MDP for the environment
-                mdp = environments[condition][env].mdp
-                
-                # If the predator trajectory and predicted trajectory have equal numbers of moves
-                if len(predator_trajectory) - 1 == len(predicted_trajectory) == 20:
-                    
-                    # For conditions where the predator values the prey, we need to provide a new MDP at each step
-                    # to account for 
-                    if condition in prey_value_conditions:
-                        
-                        # GET PREY MOVES (FOR CONDITION 3)
-                        prey_moves = subject_env_prey_df['cellID'].values[1:]  # Ignore starrting state?
-                        
-                        # Create a list of MDPs
-                        mdps = []
-
-                        for i in range(len(prey_moves)):
-
-                            # Get environment and move the prey agent
-                            trial_env = environments[condition][env]
-                            trial_env.set_agent_position('Prey_1', prey_moves[i])
-
-                            # Create a new MDP to ensure we get a copy not a reference to the original one
-                            new_mdp = HexGridMDP(trial_env.mdp.features.copy(), trial_env.mdp.walls, shape=trial_env.mdp.shape)
-                            mdps += [new_mdp, new_mdp]  # Same mdp for 2 moves as the predator makes 2 moves at a time
-                    else:
-                        # Otherwise, the "list" is just a single MDP for the entire task
-                        mdps = mdp
-
-                    # Get predicted actions from predicted states
-                    predicted_actions = []
-
-                    for i in np.arange(0, len(predicted_trajectory), 2):
-                        t = [predator_trajectory[i], *predicted_trajectory[i: i+2]]
-                        predicted_actions += mdp._trajectory_to_state_action(t)[:, 1].astype(int).tolist()
-        
-                    # Set up dictionaries for recording outputs
-                    accuracy[subject][condition][env] = {}
-                    log_lik[subject][condition][env] = {}
