@@ -5,6 +5,10 @@
 
 This repository contains all code necessary to reproduce the analyses from our work on flexible avoidance of dynamic threats.
 
+## Data
+
+Data is available from the corresponding OSF repository: https://osf.io/fwgqa/
+
 ## Notebooks
 
 The `/notebooks` directory contains Jupyter notebooks that run through all the main analyses, including code to produce the figures in the paper. Some model fitting is run in separate scripts as it makes it easier to run multiple fits in parallel. This is described in more detail in the relevant notebooks.
