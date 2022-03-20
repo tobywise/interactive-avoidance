@@ -1,0 +1,5 @@
+{
+    "n_repeats": 8,
+    "stopping_point": 6,
+    "MCTS_iterations": 5000
+}
