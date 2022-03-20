@@ -4,6 +4,7 @@ Runs model fitting for subjects' predictions about the predator's actions.
 
 from maMDP.mdp import HexGridMDP
 from maMDP.algorithms.policy_learning import *
+from numpy.lib.function_base import diff
 import pandas as pd
 import numpy as np
 from typing import Dict
@@ -12,6 +13,7 @@ from typing import Dict
 # sys.path.append(".")
 from action_prediction import *
 from tqdm import tqdm
+from scipy.optimize import minimize, differential_evolution
 import warnings
 
 
@@ -25,6 +27,7 @@ def fit_output_to_dataframe(
     log_lik_dict: Dict,
     bic_dict: Dict,
     alpha_values_dict: Dict,
+    decay_values_dict: Dict,
     w_values_dict: Dict,
     subjectID: str,
     condition: str,
@@ -36,6 +39,7 @@ def fit_output_to_dataframe(
         "log_lik": [],
         "BIC": [],
         "alpha_values": [],
+        "decay_values": [],
         "w_values": [],
     }
 
@@ -45,6 +49,7 @@ def fit_output_to_dataframe(
         out["log_lik"].append(log_lik_dict[model])
         out["BIC"].append(bic_dict[model])
         out["alpha_values"].append(alpha_values_dict[model])
+        out["decay_values"].append(decay_values_dict[model])
         out["w_values"].append(w_values_dict[model])
 
     out["subjectID"] = subjectID
@@ -150,6 +155,7 @@ def fit_models(
     log_lik = {}
     bic = {}
     alpha_values = {}
+    decay_values = {}
     w_values = {}
     model_predictions = {}
 
@@ -166,7 +172,8 @@ def fit_models(
     accuracy["repetition"], log_lik["repetition"], bic["repetition"] = get_model_fit(
         predicted_states, predicted_actions, predictions, Q_estimates
     )
-    alpha_values["repetition"], w_values["repetition"] = (
+    alpha_values["repetition"], decay_values["repetition"], w_values["repetition"] = (
+        np.nan,
         np.nan,
         np.nan,
     )  # No parameters in this model
@@ -178,25 +185,35 @@ def fit_models(
     # POLICY LEARNING #
     ###################
     # Estimate learning rate
-    res = minimize(
+    # res = minimize(
+    #     fit_policy_learning,
+    #     [0.5, 0.5],
+    #     args=[trajectories, mdps, predicted_actions, False, False],
+    #     bounds=[(0.001, 0.999), (0.001, 0.999)],
+    # )
+
+    res = differential_evolution(
         fit_policy_learning,
-        [0.5],
-        args=[trajectories, mdps, predicted_actions, False, False],
-        bounds=[(0.001, 0.999)],
+        seed=123,
+        args=(trajectories, mdps, predicted_actions, False, False),
+        bounds=[(0.001, 0.999), (0.001, 0.999)],
     )
+
     # Simulate with estimated learning rate
     _, Q_estimates, predictions = action_prediction_envs(
         trajectories,
         mdps,
-        TDGeneralPolicyLearner(learning_rate=res.x[0]),
+        TDGeneralPolicyLearner(learning_rate=res.x[0], decay=res.x[1]),
         action_selector=MaxActionSelector(seed=123),
     )
+
     (
         accuracy["policy_learning"],
         log_lik["policy_learning"],
         bic["policy_learning"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 1)
-    alpha_values["policy_learning"], w_values["policy_learning"] = (res.x[0], np.nan)
+
+    alpha_values["policy_learning"], decay_values['policy_learning'], w_values["policy_learning"] = (res.x[0], res.x[1], np.nan)
     model_predictions["policy_learning"] = np.array(
         fill_missing_predictions(predictions)
     ).copy()
@@ -205,26 +222,36 @@ def fit_models(
     # POLICY GENERALISATION #
     #########################
     # Estimate learning rate
-    res = minimize(
+    # res = minimize(
+    #     fit_policy_learning,
+    #     [0.5, 0.5],
+    #     args=[trajectories, mdps, predicted_actions, True, False],
+    #     bounds=[(0.001, 0.999), (0.001, 0.999)],
+    # )
+
+    res = differential_evolution(
         fit_policy_learning,
-        [0.5],
+        seed=123,
         args=[trajectories, mdps, predicted_actions, True, False],
-        bounds=[(0.001, 0.999)],
+        bounds=[(0.001, 0.999), (0.001, 0.999)],
     )
+
     _, Q_estimates, predictions = action_prediction_envs(
         trajectories,
         mdps,
-        TDGeneralPolicyLearner(learning_rate=res.x[0], kernel=True),
+        TDGeneralPolicyLearner(learning_rate=res.x[0], decay=res.x[1], kernel=True),
         action_selector=MaxActionSelector(seed=123),
     )
+
     (
         accuracy["policy_generalisation"],
         log_lik["policy_generalisation"],
         bic["policy_generalisation"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 1)
 
-    alpha_values["policy_generalisation"], w_values["policy_generalisation"] = (
+    alpha_values["policy_generalisation"], decay_values['policy_generalisation'], w_values["policy_generalisation"] = (
         res.x[0],
+        res.x[1],
         np.nan,
     )
     model_predictions["policy_generalisation"] = np.array(
@@ -245,7 +272,7 @@ def fit_models(
         log_lik["goal_inference"],
         bic["goal_inference"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates)
-    alpha_values["goal_inference"], w_values["goal_inference"] = (np.nan, np.nan)
+    alpha_values["goal_inference"], decay_values['goal_inference'], w_values["goal_inference"] = (np.nan, np.nan, np.nan)
     model_predictions["goal_inference"] = np.array(
         fill_missing_predictions(predictions)
     ).copy()
@@ -261,12 +288,19 @@ def fit_models(
     else:
         VI_model.fit(mdps[0][0], [])
     # Estimate weighting parameter
-    res = minimize(
+    # res = minimize(
+    #     fit_combined_model,
+    #     [0.5],
+    #     args=[trajectories, mdps, predicted_actions, VI_model, 1, 0, False],
+    #     bounds=[(0, 1)],
+    #     options=dict(eps=1e-2),
+    # )
+
+    res = differential_evolution(
         fit_combined_model,
-        [0.5],
+        seed=123,
         args=[trajectories, mdps, predicted_actions, VI_model, 1, 0, False],
-        bounds=[(0, 1)],
-        options=dict(eps=1e-2),
+        bounds=[(0, 1)]
     )
 
     _, Q_estimates, predictions = action_prediction_envs(
@@ -285,7 +319,8 @@ def fit_models(
         log_lik["combined_repetition"],
         bic["combined_repetition"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 1)
-    alpha_values["combined_repetition"], w_values["combined_repetition"] = (
+    alpha_values["combined_repetition"], decay_values['combined_repetition'], w_values["combined_repetition"] = (
+        np.nan,
         np.nan,
         res.x[0],
     )
@@ -297,12 +332,19 @@ def fit_models(
     # GOAL INFERENCE + LEARNING #
     #############################
 
-    res = minimize(
+    # res = minimize(
+    #     fit_combined_model_learning_rate,
+    #     [0.5, 0.5, 0.5],
+    #     args=[trajectories, mdps, predicted_actions, VI_model, False, False],
+    #     bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)],
+    #     options=dict(eps=1e-2),
+    # )
+
+    res = differential_evolution(
         fit_combined_model_learning_rate,
-        [0.5, 0.5],
+        seed=123,
         args=[trajectories, mdps, predicted_actions, VI_model, False, False],
-        bounds=[(0, 1), (0.001, 0.999)],
-        options=dict(eps=1e-2),
+        bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)]
     )
 
     _, Q_estimates, predictions = action_prediction_envs(
@@ -310,7 +352,7 @@ def fit_models(
         mdps,
         CombinedPolicyLearner(
             VIPolicyLearner(ValueIteration(), agent_reward_function),
-            TDGeneralPolicyLearner(learning_rate=res.x[1]),
+            TDGeneralPolicyLearner(learning_rate=res.x[1], decay=res.x[2]),
             W=res.x[0],
             scale=True,
         ),
@@ -321,8 +363,9 @@ def fit_models(
         log_lik["combined_learning"],
         bic["combined_learning"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 2)
-    alpha_values["combined_learning"], w_values["combined_learning"] = (
+    alpha_values["combined_learning"], decay_values['combined_learning'], w_values["combined_learning"] = (
         res.x[1],
+        res.x[2],
         res.x[0],
     )
     model_predictions["combined_learning"] = np.array(
@@ -333,12 +376,19 @@ def fit_models(
     # GOAL INFERENCE + GENERALISATION #
     ###################################
 
-    res = minimize(
+    # res = minimize(
+    #     fit_combined_model_learning_rate,
+    #     [0.5, 0.5, 0.5],
+    #     args=[trajectories, mdps, predicted_actions, VI_model, True, False],
+    #     bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)],
+    #     options=dict(eps=1e-2),
+    # )
+
+    res = differential_evolution(
         fit_combined_model_learning_rate,
-        [0.5, 0.5],
+        seed=123,
         args=[trajectories, mdps, predicted_actions, VI_model, True, False],
-        bounds=[(0, 1), (0.001, 0.999)],
-        options=dict(eps=1e-2),
+        bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)]
     )
 
     _, Q_estimates, predictions = action_prediction_envs(
@@ -346,7 +396,7 @@ def fit_models(
         mdps,
         CombinedPolicyLearner(
             VIPolicyLearner(ValueIteration(), agent_reward_function),
-            TDGeneralPolicyLearner(learning_rate=res.x[1], kernel=True),
+            TDGeneralPolicyLearner(learning_rate=res.x[1], decay=res.x[2], kernel=True),
             W=res.x[0],
             scale=True,
         ),
@@ -357,15 +407,16 @@ def fit_models(
         log_lik["combined_generalisation"],
         bic["combined_generalisation"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 2)
-    alpha_values["combined_generalisation"], w_values["combined_generalisation"] = (
+    alpha_values["combined_generalisation"], decay_values['combined_generalisation'], w_values["combined_generalisation"] = (
         res.x[1],
+        res.x[2],
         res.x[0],
     )
     model_predictions["combined_generalisation"] = np.array(
         fill_missing_predictions(predictions)
     ).copy()
 
-    return accuracy, log_lik, bic, model_predictions, alpha_values, w_values
+    return accuracy, log_lik, bic, model_predictions, alpha_values, decay_values, w_values
 
 
 def fit_subject_predictions(
@@ -506,6 +557,7 @@ def fit_subject_predictions(
                     log_lik,
                     bic,
                     model_predictions,
+                    decay_values,
                     alpha_values,
                     w_values,
                 ) = fit_models(
@@ -517,7 +569,7 @@ def fit_subject_predictions(
                 )
 
                 out_df = fit_output_to_dataframe(
-                    accuracy, log_lik, bic, alpha_values, w_values, subject, condition
+                    accuracy, log_lik, bic, alpha_values, decay_values, w_values, subject, condition
                 )
 
                 return out_df, model_predictions
@@ -564,7 +616,7 @@ def fit_prediction_models(
 
     if n_jobs == 1:
 
-        for sub in tqdm(subjects[29:]):
+        for sub in tqdm(subjects):
             fit, model_predictions = fit_subject_predictions(
                 predator_moves[predator_moves["subjectID"] == sub],
                 prey_moves[prey_moves["subjectID"] == sub],

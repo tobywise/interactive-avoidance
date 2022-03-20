@@ -29,8 +29,6 @@ if __name__ == "__main__":
         runID = 29
 
     # Get fitting parameters
-    # Get subject IDs and parameter values
-    # run_params = pd.read_csv('data/planning_model_fit_runs.csv')
     run_params = pd.read_csv(args.params_file)
     run_params = run_params.iloc[runID].to_dict()
 

@@ -11,7 +11,7 @@ if __name__ == "__main__":
     try:
         runID = int(os.environ["SLURM_ARRAY_TASK_ID"])
     except:
-        runID = 8
+        runID = 47
 
     # Load in data
     rating_dfs = []
@@ -87,6 +87,8 @@ if __name__ == "__main__":
     run_params = run_params.iloc[runID - 1].to_dict()
     sub = run_params["subjectID"]
 
+    print('Fitting subject {0}'.format(sub))
+
     # Where to save output
     irl_fit_output_dir = "data/irl_fits/{0}".format(experiment)
     if not os.path.exists(irl_fit_output_dir):
@@ -161,3 +163,5 @@ if __name__ == "__main__":
             )
 
     print("MODEL FIT FINISHED")
+
+
