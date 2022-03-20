@@ -8,14 +8,9 @@ from numpy.lib.function_base import diff
 import pandas as pd
 import numpy as np
 from typing import Dict
-
-# import sys
-# sys.path.append(".")
 from action_prediction import *
 from tqdm import tqdm
-from scipy.optimize import minimize, differential_evolution
-import warnings
-
+from scipy.optimize import differential_evolution
 
 def BIC(n_params: int, log_lik: float, n_obs: int):
 
@@ -184,14 +179,8 @@ def fit_models(
     ###################
     # POLICY LEARNING #
     ###################
-    # Estimate learning rate
-    # res = minimize(
-    #     fit_policy_learning,
-    #     [0.5, 0.5],
-    #     args=[trajectories, mdps, predicted_actions, False, False],
-    #     bounds=[(0.001, 0.999), (0.001, 0.999)],
-    # )
 
+    # Estimate learning rate
     res = differential_evolution(
         fit_policy_learning,
         seed=123,
@@ -221,14 +210,8 @@ def fit_models(
     #########################
     # POLICY GENERALISATION #
     #########################
-    # Estimate learning rate
-    # res = minimize(
-    #     fit_policy_learning,
-    #     [0.5, 0.5],
-    #     args=[trajectories, mdps, predicted_actions, True, False],
-    #     bounds=[(0.001, 0.999), (0.001, 0.999)],
-    # )
 
+    # Estimate learning rate
     res = differential_evolution(
         fit_policy_learning,
         seed=123,
@@ -287,15 +270,8 @@ def fit_models(
         VI_model.fit(mdps[0], [])
     else:
         VI_model.fit(mdps[0][0], [])
-    # Estimate weighting parameter
-    # res = minimize(
-    #     fit_combined_model,
-    #     [0.5],
-    #     args=[trajectories, mdps, predicted_actions, VI_model, 1, 0, False],
-    #     bounds=[(0, 1)],
-    #     options=dict(eps=1e-2),
-    # )
 
+    # Estimate weighting parameter
     res = differential_evolution(
         fit_combined_model,
         seed=123,
@@ -332,14 +308,6 @@ def fit_models(
     # GOAL INFERENCE + LEARNING #
     #############################
 
-    # res = minimize(
-    #     fit_combined_model_learning_rate,
-    #     [0.5, 0.5, 0.5],
-    #     args=[trajectories, mdps, predicted_actions, VI_model, False, False],
-    #     bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)],
-    #     options=dict(eps=1e-2),
-    # )
-
     res = differential_evolution(
         fit_combined_model_learning_rate,
         seed=123,
@@ -375,14 +343,6 @@ def fit_models(
     ###################################
     # GOAL INFERENCE + GENERALISATION #
     ###################################
-
-    # res = minimize(
-    #     fit_combined_model_learning_rate,
-    #     [0.5, 0.5, 0.5],
-    #     args=[trajectories, mdps, predicted_actions, VI_model, True, False],
-    #     bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)],
-    #     options=dict(eps=1e-2),
-    # )
 
     res = differential_evolution(
         fit_combined_model_learning_rate,
