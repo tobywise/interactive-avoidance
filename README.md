@@ -21,4 +21,4 @@ The code for much of the model fitting is provided in the `/code` directory. Thi
 
 Aside from common Python dependencies for data manipulation and processing (e.g., Numpy, Pandas), this code relies upon the Multi-Agent MDP package (https://github.com/tobywise/multi_agent_mdp).
 
-In addition, the hypothesis testing invers reinforcement learning model depends on [Jax](https://github.com/google/jax) and [Numpyro](https://github.com/pyro-ppl/numpyro), which do not work on Windows.
+In addition, the hypothesis testing inverse reinforcement learning model depends on [Jax](https://github.com/google/jax) and [Numpyro](https://github.com/pyro-ppl/numpyro), which do not work on Windows.

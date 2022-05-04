@@ -278,7 +278,7 @@ def fit_policy_learning(X: Tuple[float], *args: List) -> float:
     Fits a policy learning model. Intended for use with scipy optimization functions.
 
     Args:
-        alpha (Tuple): Learning rate, learning rate decay.
+        X (Tuple): Learning rate, learning rate decay.
         args (List): Other arguments. 1: Predator trajectories, 2: MDPs,
         3: Subject's predicted actions, 4: Whether to use generalisation kernel, 5: Whether to reset the model
         for each environment
