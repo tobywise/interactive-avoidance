@@ -2,10 +2,12 @@ import numpy as np
 from typing import List
 from maMDP.environments import Environment
 from joblib import Parallel, delayed
+import os
 
 # INVERSE BINOMIAL SAMPLING #
 
-def fit_algorithm(env:Environment, agent_name:str, n_planning_steps:int) -> int:
+
+def fit_algorithm(env: Environment, agent_name: str, n_planning_steps: int) -> int:
     """
     Predicts the next move for a given agent in a given environment, and returns
     the predicted next state.
@@ -22,13 +24,22 @@ def fit_algorithm(env:Environment, agent_name:str, n_planning_steps:int) -> int:
     env.reset()
 
     env.fit(agent_name, n_planning_steps)
+    # could use step_multi but we want to refit at each step based on the subject's previous
+    # move rather than the model's prediction, i.e. fitting at the step leve rather than the trajectory level
     predicted_state = env.step(agent_name, n_planning_steps)
 
-    env.reset() 
+    env.reset()
 
     return predicted_state
 
-def IBS_ll(stopping_point:int, env:Environment, agent_name:str, observed:List[int], max_planning_steps:int=None) -> float:
+
+def IBS_ll(
+    stopping_point: int,
+    env: Environment,
+    agent_name: str,
+    observed: List[int],
+    max_planning_steps: int = None,
+) -> float:
     """
     Calculates trial-wise log-likelihood for one iteration of IBS. Intended to be used to facilitate
     parallelising the IBS algorithm at the repetition level
@@ -59,14 +70,36 @@ def IBS_ll(stopping_point:int, env:Environment, agent_name:str, observed:List[in
     # Try K until stopping point
     for k in range(stopping_point):
 
-        # print('K = {0}'.format(k))
+        print("K = {0}".format(k))
 
         for n in range(n_trials):
 
             if not hit[n]:
-            
-                predicted_state = fit_algorithm(env[n], agent_name, max_planning_steps-n)
+
+                predicted_state = fit_algorithm(
+                    env[n], agent_name, max_planning_steps - n
+                )
                 predictions[n, k] = predicted_state
+
+                print("Trial {0}, starting state = {1}".format(n, env[n].agents[agent_name].position))
+                print("Predicted state: {0}".format(predicted_state))
+                print("Observed state: {0}".format(observed[n]))
+
+                # Check if predicted and observed states are valid from starting state
+                assert np.any(
+                    env[n].mdp.sas[
+                        env[n].agents[agent_name].position, :, predicted_state
+                    ]
+                    > 0
+                ), "Predicted state {0} is invalid from starting state {1}".format(
+                    predicted_state, env[n].agents[agent_name].position
+                )
+                assert np.any(
+                    env[n].mdp.sas[env[n].agents[agent_name].position, :, observed[n]]
+                    > 0
+                ), "Observed state {0} is invalid from starting state {1}".format(
+                    observed[n], env[n].agents[agent_name].position
+                )
 
                 # print('Trial = {0}, K = {1}, state = {2}'.format(n, k, predicted_state))
 
@@ -80,22 +113,29 @@ def IBS_ll(stopping_point:int, env:Environment, agent_name:str, observed:List[in
 
     # Get LL for each trial on this repeat
     for n in range(n_trials):
-        rep_ll[n] = -np.sum(1./np.arange(1, rep_K[n]-1))
+        rep_ll[n] = -np.sum(1.0 / np.arange(1, rep_K[n] - 1))
 
     print(rep_K)
+    print(predictions)
 
     return rep_ll
 
-class IBSEstimator():
 
-    def __init__(self, n_jobs:int=1, n_repeats:int=1, stopping_point:int=6, max_planning_steps=None):
+class IBSEstimator:
+    def __init__(
+        self,
+        n_jobs: int = 1,
+        n_repeats: int = 1,
+        stopping_point: int = 6,
+        max_planning_steps=None,
+    ):
 
         self.n_jobs = n_jobs
         self.n_repeats = n_repeats
         self.stopping_point = stopping_point
         self.max_planning_steps = max_planning_steps
-    
-    def fit(self, env:Environment, agent_name:str, observed:List[int]):
+
+    def fit(self, env: Environment, agent_name: str, observed: List[int]):
         """
         Calculates the IBS log-likelihood of the model.
 
@@ -116,7 +156,7 @@ class IBSEstimator():
 
         # If not doing this in parallel, just do this with a for loop
         if self.n_jobs == 1:
-            
+
             ll = []
             # prediction_list = []
 
@@ -124,12 +164,28 @@ class IBSEstimator():
                 # est_ll, predicted_states = IBS_ll(self.stopping_point, env, agent_name, observed)
                 # ll.append(est_ll)
                 # prediction_list.append(predicted_states)
-                ll.append(IBS_ll(self.stopping_point, env, agent_name, observed, self.max_planning_steps))
+                ll.append(
+                    IBS_ll(
+                        self.stopping_point,
+                        env,
+                        agent_name,
+                        observed,
+                        self.max_planning_steps,
+                    )
+                )
 
         # Otherwise use joblib
         else:
-            ll = Parallel(n_jobs=self.n_jobs)(delayed(IBS_ll)(self.stopping_point, env, agent_name, observed, self.max_planning_steps) 
-                                              for _ in range(self.n_repeats))
+            ll = Parallel(n_jobs=self.n_jobs)(
+                delayed(IBS_ll)(
+                    self.stopping_point,
+                    env,
+                    agent_name,
+                    observed,
+                    self.max_planning_steps,
+                )
+                for _ in range(self.n_repeats)
+            )
 
         self.ll = np.stack(ll)
 
@@ -137,11 +193,5 @@ class IBSEstimator():
         self.average_ll = self.ll.mean(axis=0)
         # Get overall summed LL
         self.ll_sum = self.average_ll.sum()
-        
+
         # self.predicted_states = np.stack(prediction_list)
-
-
-
-            
-
-

@@ -12,6 +12,7 @@ from action_prediction import *
 from tqdm import tqdm
 from scipy.optimize import differential_evolution
 
+
 def BIC(n_params: int, log_lik: float, n_obs: int):
 
     return n_params * np.log(n_obs) - 2 * log_lik
@@ -157,7 +158,7 @@ def fit_models(
     #####################
     # POLICY REPETITION #
     #####################
-    _, Q_estimates, predictions = action_prediction_envs(
+    _, Q_estimates, predictions, _ = action_prediction_envs(
         trajectories,
         mdps,
         TDGeneralPolicyLearner(learning_rate=1, decay=0),
@@ -189,7 +190,7 @@ def fit_models(
     )
 
     # Simulate with estimated learning rate
-    _, Q_estimates, predictions = action_prediction_envs(
+    _, Q_estimates, predictions, _ = action_prediction_envs(
         trajectories,
         mdps,
         TDGeneralPolicyLearner(learning_rate=res.x[0], decay=res.x[1]),
@@ -202,7 +203,11 @@ def fit_models(
         bic["policy_learning"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 1)
 
-    alpha_values["policy_learning"], decay_values['policy_learning'], w_values["policy_learning"] = (res.x[0], res.x[1], np.nan)
+    (
+        alpha_values["policy_learning"],
+        decay_values["policy_learning"],
+        w_values["policy_learning"],
+    ) = (res.x[0], res.x[1], np.nan)
     model_predictions["policy_learning"] = np.array(
         fill_missing_predictions(predictions)
     ).copy()
@@ -219,7 +224,7 @@ def fit_models(
         bounds=[(0.001, 0.999), (0.001, 0.999)],
     )
 
-    _, Q_estimates, predictions = action_prediction_envs(
+    _, Q_estimates, predictions, _ = action_prediction_envs(
         trajectories,
         mdps,
         TDGeneralPolicyLearner(learning_rate=res.x[0], decay=res.x[1], kernel=True),
@@ -232,7 +237,11 @@ def fit_models(
         bic["policy_generalisation"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 1)
 
-    alpha_values["policy_generalisation"], decay_values['policy_generalisation'], w_values["policy_generalisation"] = (
+    (
+        alpha_values["policy_generalisation"],
+        decay_values["policy_generalisation"],
+        w_values["policy_generalisation"],
+    ) = (
         res.x[0],
         res.x[1],
         np.nan,
@@ -244,7 +253,7 @@ def fit_models(
     ##################
     # GOAL INFERENCE #
     ##################
-    _, Q_estimates, predictions = action_prediction_envs(
+    _, Q_estimates, predictions, _ = action_prediction_envs(
         trajectories,
         mdps,
         VIPolicyLearner(ValueIteration(), agent_reward_function),
@@ -255,7 +264,11 @@ def fit_models(
         log_lik["goal_inference"],
         bic["goal_inference"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates)
-    alpha_values["goal_inference"], decay_values['goal_inference'], w_values["goal_inference"] = (np.nan, np.nan, np.nan)
+    (
+        alpha_values["goal_inference"],
+        decay_values["goal_inference"],
+        w_values["goal_inference"],
+    ) = (np.nan, np.nan, np.nan)
     model_predictions["goal_inference"] = np.array(
         fill_missing_predictions(predictions)
     ).copy()
@@ -276,10 +289,10 @@ def fit_models(
         fit_combined_model,
         seed=123,
         args=[trajectories, mdps, predicted_actions, VI_model, 1, 0, False],
-        bounds=[(0, 1)]
+        bounds=[(0, 1)],
     )
 
-    _, Q_estimates, predictions = action_prediction_envs(
+    _, Q_estimates, predictions, _ = action_prediction_envs(
         trajectories,
         mdps,
         CombinedPolicyLearner(
@@ -295,7 +308,11 @@ def fit_models(
         log_lik["combined_repetition"],
         bic["combined_repetition"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 1)
-    alpha_values["combined_repetition"], decay_values['combined_repetition'], w_values["combined_repetition"] = (
+    (
+        alpha_values["combined_repetition"],
+        decay_values["combined_repetition"],
+        w_values["combined_repetition"],
+    ) = (
         np.nan,
         np.nan,
         res.x[0],
@@ -312,10 +329,10 @@ def fit_models(
         fit_combined_model_learning_rate,
         seed=123,
         args=[trajectories, mdps, predicted_actions, VI_model, False, False],
-        bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)]
+        bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)],
     )
 
-    _, Q_estimates, predictions = action_prediction_envs(
+    _, Q_estimates, predictions, _ = action_prediction_envs(
         trajectories,
         mdps,
         CombinedPolicyLearner(
@@ -331,7 +348,11 @@ def fit_models(
         log_lik["combined_learning"],
         bic["combined_learning"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 2)
-    alpha_values["combined_learning"], decay_values['combined_learning'], w_values["combined_learning"] = (
+    (
+        alpha_values["combined_learning"],
+        decay_values["combined_learning"],
+        w_values["combined_learning"],
+    ) = (
         res.x[1],
         res.x[2],
         res.x[0],
@@ -348,10 +369,10 @@ def fit_models(
         fit_combined_model_learning_rate,
         seed=123,
         args=[trajectories, mdps, predicted_actions, VI_model, True, False],
-        bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)]
+        bounds=[(0, 1), (0.001, 0.999), (0.001, 0.999)],
     )
 
-    _, Q_estimates, predictions = action_prediction_envs(
+    _, Q_estimates, predictions, _ = action_prediction_envs(
         trajectories,
         mdps,
         CombinedPolicyLearner(
@@ -367,7 +388,11 @@ def fit_models(
         log_lik["combined_generalisation"],
         bic["combined_generalisation"],
     ) = get_model_fit(predicted_states, predicted_actions, predictions, Q_estimates, 2)
-    alpha_values["combined_generalisation"], decay_values['combined_generalisation'], w_values["combined_generalisation"] = (
+    (
+        alpha_values["combined_generalisation"],
+        decay_values["combined_generalisation"],
+        w_values["combined_generalisation"],
+    ) = (
         res.x[1],
         res.x[2],
         res.x[0],
@@ -376,7 +401,19 @@ def fit_models(
         fill_missing_predictions(predictions)
     ).copy()
 
-    return accuracy, log_lik, bic, model_predictions, alpha_values, decay_values, w_values
+    return (
+        accuracy,
+        log_lik,
+        bic,
+        model_predictions,
+        alpha_values,
+        decay_values,
+        w_values,
+    )
+
+
+# TODO add in a simulation option to the fit_subject_predictions function so that everything can be run as normal but replacing subject
+# predictions with a simulation of the model
 
 
 def fit_subject_predictions(
@@ -384,6 +421,8 @@ def fit_subject_predictions(
     prey_moves: pd.DataFrame,
     predictions: pd.DataFrame,
     env_info: Dict,
+    simulate: bool = False,
+    simulation_options: Tuple = None,
 ) -> pd.DataFrame:
     """
     Fits a series of models to subjects' predictions about the predator's movements.
@@ -393,6 +432,10 @@ def fit_subject_predictions(
         prey_moves (pd.DataFrame): A dataframe representing the states visited by the prey (i.e. the subject's moves)
         predictions (pd.DataFrame): Subject's predictions about the predator's moves
         env_info (Dict): Information about each environment
+        simulate (bool): Whether to simulate predictions from a model (specified in the simulation_options argument). If True, these
+        simulated predictions are used for model fitting rather than the actual subject's predictions. Defaults to False.
+        simulation_options (Tuple): Options for the simulation, in a tuple of the form (model name, parameters, additional arguments).
+        Model name can be either "policy", "policy_generalisation", "combined", or "combined_generalisation". Defaults to None.
 
     Returns:
         pd.DataFrame: A dataframe of model fitting outputs
@@ -408,6 +451,15 @@ def fit_subject_predictions(
     predictions = predictions.sort_values(
         ["subjectID", "exp", "condition", "env", "trial", "response_number"]
     ).reset_index(drop=True)
+
+    # Get simulation parameters
+    if simulate:
+        if simulation_options is None:
+            raise ValueError("simulation_options must be specified if simulate is True")
+
+        simulation_model, simulation_params, simulation_args = simulation_options
+        if simulation_model not in ["policy", "policy_generalisation", "combined", "combined_generalisation"]:
+            raise ValueError("simulation_model must be either 'policy' or 'combined'")
 
     # Check if any data is missing
     try:
@@ -499,8 +551,10 @@ def fit_subject_predictions(
                     # Add info for this environment to list
                     env_predator_trajectories.append(predator_trajectory)
                     env_mdps.append(mdps)
-                    env_predictions.append(predicted_trajectory)
-                    env_action_predictions.append(predicted_actions)
+
+                    if not simulate:
+                        env_predictions.append(predicted_trajectory)
+                        env_action_predictions.append(predicted_actions)
 
                 # Otherwise skip this subject
                 else:
@@ -512,6 +566,53 @@ def fit_subject_predictions(
                     )
 
             if valid:
+
+                if simulate:
+                    # Simulate model predictions
+                    if simulation_model == "policy":
+                        (
+                            env_predictions,
+                            env_action_predictions,
+                        ) = simulate_policy_learning(
+                            simulation_params,
+                            (env_predator_trajectories, env_mdps, [], False, False),
+                        )
+                    elif simulation_model == "policy_generalisation":
+                        (
+                            env_predictions,
+                            env_action_predictions,
+                        ) = simulate_policy_learning(
+                            simulation_params,
+                            (env_predator_trajectories, env_mdps, [], True, False),
+                        )
+                    elif 'combined' in simulation_model:
+
+                        if 'generalisation' in simulation_model:
+                            generalisation = True
+                        else:
+                            generalisation = False
+
+                        # Fit VI here so it doesn't get refit constantly during parameter estimation
+                        VI_model = VIPolicyLearner(
+                            ValueIteration(),
+                            env_info[condition][env]
+                            .agents["Predator_1"]
+                            .reward_function,
+                            caching=True,
+                        )
+                        if not isinstance(env_mdps[0], list):
+                            VI_model.fit(env_mdps[0], [])
+                        else:
+                            VI_model.fit(env_mdps[0][0], [])
+
+                        (
+                            env_predictions,
+                            env_action_predictions,
+                        ) = simulate_combined_model_learning_rate(
+                            simulation_params,
+                            (env_predator_trajectories, env_mdps, [], VI_model, generalisation, False),
+                        )
+
                 (
                     accuracy,
                     log_lik,
@@ -529,7 +630,14 @@ def fit_subject_predictions(
                 )
 
                 out_df = fit_output_to_dataframe(
-                    accuracy, log_lik, bic, alpha_values, decay_values, w_values, subject, condition
+                    accuracy,
+                    log_lik,
+                    bic,
+                    alpha_values,
+                    decay_values,
+                    w_values,
+                    subject,
+                    condition,
                 )
 
                 return out_df, model_predictions
@@ -545,7 +653,8 @@ def fit_prediction_models(
     prey_moves: pd.DataFrame,
     predictions: pd.DataFrame,
     env_info: Dict,
-    n_jobs=1,
+    n_jobs: int = 1,
+    simulation_options: List[Tuple] = None,
 ) -> Union[pd.DataFrame, List]:
     """
     Fits 7 different prediction models to subjects' data:
@@ -558,30 +667,47 @@ def fit_prediction_models(
     6. Goal inference and policy learning
     7. Goal inference and policy learning with generalisation
 
+    Can also simulate data from these models and then fit the model to this simulated data to facilitate 
+    parameter/model recovery tests.
+
     Args:
         predator_moves (pd.DataFrame): Dataframe containing moves made by the predator
         prey_moves (pd.DataFrame): Dataframes containing moves made my prey
         predictions (pd.DataFrame): Dataframe containing predictions made by subject
         env_info (Dict): Environment information
         n_jobs (int, optional): Number of jobs for parallel processing. Defaults to 1.
+        simulation_options (List[Tuple]): If provided, simulated predictions are used for model fitting rather than the 
+        actual subject's predictions. Options for the simulation are provided as a list of tuples of the form 
+        (model name, parameters, additional arguments). The list should contain one entry per subject in the dataframes.
+        Model name can be either "policy", "policy_generalisation", "combined", or "combined_generalisation". Defaults to None.
 
     Returns:
         Union[pd.Dataframe, List]: Returns fit statistics and predictions made by the models
     """
 
+    if simulation_options is not None:
+        simulate = True
+    else:
+        simulate = False
+
     subjects = list(predator_moves["subjectID"].unique())
+
+    if not len(simulation_options) == len(subjects):
+        raise ValueError("Number of subjects must match number of simulation options")
 
     fit_dfs = []
     model_prediction_list = []
 
     if n_jobs == 1:
 
-        for sub in tqdm(subjects):
+        for n, sub in enumerate(tqdm(subjects)):
             fit, model_predictions = fit_subject_predictions(
                 predator_moves[predator_moves["subjectID"] == sub],
                 prey_moves[prey_moves["subjectID"] == sub],
                 predictions[predictions["subjectID"] == sub],
                 env_info,
+                simulate=simulate,
+                simulation_options=simulation_options[n],
             )
 
             fit_dfs.append(fit)
@@ -610,8 +736,10 @@ def fit_prediction_models(
                 prey_moves[prey_moves["subjectID"] == sub],
                 predictions[predictions["subjectID"] == sub],
                 env_info,
+                simulate=simulate,
+                simulation_options=simulation_options[n],
             )
-            for sub in subjects
+            for n, sub in enumerate(subjects)
         )
 
         fit_dfs = [i[0] for i in fits]

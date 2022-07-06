@@ -164,4 +164,6 @@ if __name__ == "__main__":
 
     print("MODEL FIT FINISHED")
 
-
+# TODO
+# IRL models already provided predictions for all subjects
+# Should just need to feed these predictions back into the model fitting code

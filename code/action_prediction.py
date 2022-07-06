@@ -297,7 +297,7 @@ def fit_policy_learning(X: Tuple[float], *args: List) -> float:
 
     predator_t, target_mdp, predicted_a, kernel, env_reset = args
 
-    _, Q_estimates, _ = action_prediction_envs(
+    _, Q_estimates, _, _ = action_prediction_envs(
         predator_t,
         target_mdp,
         TDGeneralPolicyLearner(learning_rate=alpha, kernel=kernel, decay=decay),
@@ -310,7 +310,36 @@ def fit_policy_learning(X: Tuple[float], *args: List) -> float:
     return -logp
 
 
-def fit_combined_model(W: float, *args: List):
+def simulate_policy_learning(X: Tuple[float], args: List) -> Union[List, List]:
+    """
+    Simulates choices made by a policy learning model. Takes arguments in the same form as the corresponding fitting function.
+
+    Args:
+        X (Tuple): Learning rate, learning rate decay.
+        args (List): Other arguments. 1: Predator trajectories, 2: MDPs,
+        3: Subject's predicted actions, 4: Whether to use generalisation kernel, 5: Whether to reset the model
+        for each environment
+
+    Returns:
+        Union[List, List]: List of predicted states, list of predicted actions
+    """
+
+    alpha, decay = X
+
+    predator_t, target_mdp, predicted_a, kernel, env_reset = args
+
+    _, _, simulated_predictions, simulated_predicted_actions = action_prediction_envs(
+        predator_t,
+        target_mdp,
+        TDGeneralPolicyLearner(learning_rate=alpha, kernel=kernel, decay=decay),
+        action_selector=MaxActionSelector(seed=123),
+        env_reset=env_reset,
+    )
+
+    return simulated_predictions, simulated_predicted_actions
+
+
+def fit_combined_model(W: float, *args: List) -> float:
     """
     Fits a combined policy learning/value iteration model without estimating a learning rate for the policy learner.
     Intended for use with scipy optimization functions.
@@ -333,7 +362,7 @@ def fit_combined_model(W: float, *args: List):
 
     model2 = TDGeneralPolicyLearner(learning_rate=learning_rate, decay=decay)
 
-    _, Q_estimates, _ = action_prediction_envs(
+    _, Q_estimates, _, _ = action_prediction_envs(
         predator_t,
         target_mdp,
         CombinedPolicyLearner(model1, model2, W=W),
@@ -345,8 +374,7 @@ def fit_combined_model(W: float, *args: List):
 
     return -logp
 
-
-def fit_combined_model_learning_rate(X: Tuple[float], *args: List):
+def fit_combined_model_learning_rate(X: Tuple[float], *args: List) -> float:
     """
     Fits a combined policy learning/value iteration model, estimating a learning rate for the policy learner.
     Intended for use with scipy optimization functions.
@@ -374,7 +402,7 @@ def fit_combined_model_learning_rate(X: Tuple[float], *args: List):
 
     model2 = TDGeneralPolicyLearner(learning_rate=alpha, kernel=kernel, decay=decay)
 
-    _, Q_estimates, _ = action_prediction_envs(
+    _, Q_estimates, _, _ = action_prediction_envs(
         predator_t,
         target_mdp,
         CombinedPolicyLearner(model1, model2, W=W),
@@ -386,6 +414,36 @@ def fit_combined_model_learning_rate(X: Tuple[float], *args: List):
 
     return -logp
 
+def simulate_combined_model_learning_rate(X: Tuple[float], args: List) -> Union[List, List]:
+    """
+    Simulates predictions using a combined policy learning/value iteration model, including a learning rate for the policy learner.
+    Takes arguments in the same form as the corresponding fitting function.
+
+    Args:
+        X (Tuple): Weighting parameter, learning rate, learning rate decay.
+        args (List): Other arguments. 1: Predator trajectory, 2: MDP,
+        3: Subject's predicted actions, 4: Value iteration model, 5: Whether to use a generalisation kernel, 6: Whether
+        to reset the model for each environment
+
+    Returns:
+        Union[List, List]: List of predicted states, list of predicted actions
+    """
+
+    W, alpha, decay = X
+
+    predator_t, target_mdp, predicted_a, model1, kernel, env_reset = args
+
+    model2 = TDGeneralPolicyLearner(learning_rate=alpha, kernel=kernel, decay=decay)
+
+    _, _, simulated_predictions, simulated_predicted_actions = action_prediction_envs(
+        predator_t,
+        target_mdp,
+        CombinedPolicyLearner(model1, model2, W=W),
+        action_selector=MaxActionSelector(seed=123),
+        env_reset=env_reset,
+    )
+
+    return simulated_predictions, simulated_predicted_actions
 
 """
 Learning models - not reset each environment (but could be), not reset for different MDPs
@@ -393,8 +451,6 @@ Goal inference model - reset for each environment, reset for different MDPs
 
 Goal inference / learning models - goal inference reset for each environment, learning not (but could)
                                    goal inference reset for different MDPs, learning not
-
-
 """
 
 
@@ -440,6 +496,7 @@ def action_prediction_envs(
     all_Q = []
     all_Q_estimates = []
     all_predictions = []
+    all_predicted_actions = []
 
     # Loop through environments
     for n, trajectory in enumerate(trajectories):
@@ -448,7 +505,7 @@ def action_prediction_envs(
         if env_reset:
             policy_model.reset()
 
-        Q, Q_estimates, predictions = action_prediction(
+        Q, Q_estimates, predictions, predicted_actions = action_prediction(
             trajectory,
             mdps[n],
             policy_model,
@@ -460,8 +517,9 @@ def action_prediction_envs(
         all_Q.append(Q)
         all_Q_estimates.append(Q_estimates)
         all_predictions.append(predictions)
+        all_predicted_actions.append(predicted_actions)
 
-    return all_Q, all_Q_estimates, all_predictions
+    return all_Q, all_Q_estimates, all_predictions, all_predicted_actions
 
 
 def action_prediction(
@@ -517,6 +575,7 @@ def action_prediction(
     # Predictions
     predictions = []
     predicted_state = state[0]
+    predicted_actions = []
 
     # Fit the model to get starting Q values before any observations
     # Using an empty trajectory means learning models produce Q values of zero for all actions if they've not been fit already
@@ -565,6 +624,7 @@ def action_prediction(
         predicted_state = np.argmax(mdp[0].sas[start_state, predicted_action, :])
 
         predictions.append(predicted_state)
+        predicted_actions.append(predicted_action)
 
         # Q VALUE ESTIMATION - after observing agent move
         if n < len(state):
@@ -574,7 +634,7 @@ def action_prediction(
 
     Q_estimates = np.stack(Q_estimates)
 
-    return Q, Q_estimates, predictions
+    return Q, Q_estimates, predictions, predicted_actions
 
 
 # TODO add tests for these functions. Please. It'll save you pain in the long run.
