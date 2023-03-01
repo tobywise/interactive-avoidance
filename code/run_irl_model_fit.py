@@ -91,7 +91,12 @@ if __name__ == "__main__":
     rating_df["feature_index"] = rating_df["feature"].replace(
         {"red": 1, "trees": 0, "prey": 2}
     )
-    rating_df = rating_df[rating_df["env"] == 3]
+
+        # Select environments to run up to
+    if int(args.env) > 0:
+        rating_df = rating_df[rating_df["env"] == int(args.env)]
+    else:
+        rating_df = rating_df[rating_df["env"] == 3]
 
     # Get subject IDs and parameter values
     run_params = pd.read_csv("data/IRL_runs.csv")
