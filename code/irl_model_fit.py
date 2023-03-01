@@ -15,14 +15,11 @@ from tqdm import tqdm
 import pandas as pd
 import numpy as np
 from typing import Dict
-from sklearn.metrics import r2_score
-from sklearn.preprocessing import scale
-
-# import sys
-# sys.path.append(".")
+from sklearn.preprocessing import maxabs_scale
 from action_prediction import *
 from hypothesis_testing_irl import fit_hyp_test_irl_model
 from numba import njit
+import os
 
 
 @njit
@@ -309,3 +306,5 @@ def fit_IRL_models(
     all_subject_fit = pd.concat(fit_dfs)
 
     return all_subject_fit
+
+

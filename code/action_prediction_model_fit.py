@@ -412,9 +412,6 @@ def fit_models(
     )
 
 
-# TODO add in a simulation option to the fit_subject_predictions function so that everything can be run as normal but replacing subject
-# predictions with a simulation of the model
-
 
 def fit_subject_predictions(
     predator_moves: pd.DataFrame,

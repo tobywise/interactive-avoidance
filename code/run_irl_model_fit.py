@@ -4,8 +4,17 @@ from maMDP.env_io import *
 from maMDP.env_io import hex_environment_from_dict
 import os
 from itertools import product
+import argparse
 
 if __name__ == "__main__":
+
+    # Arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--env", help="Environment to run up to. By default, runs on all", default=0, type=int
+    )
+
+    args = parser.parse_args()
 
     # Get slurm run ID
     try:
@@ -49,6 +58,14 @@ if __name__ == "__main__":
     prediction_df = pd.concat(prediction_dfs)
     response_df = pd.concat(response_dfs)
 
+    # Select environments to run up to
+    if int(args.env) > 0:
+        rating_df = rating_df[rating_df["env"] <= int(args.env)]
+        rt_df = rt_df[rt_df["env"] <= int(args.env)]
+        confidence_df = confidence_df[confidence_df["env"] <= int(args.env)]
+        prediction_df = prediction_df[prediction_df["env"] <= int(args.env)]
+        response_df = response_df[response_df["env"] <= int(args.env)]
+
     prediction_df = prediction_df.sort_values(
         ["subjectID", "exp", "condition", "env", "trial", "response_number"]
     ).reset_index(drop=True)
@@ -74,7 +91,12 @@ if __name__ == "__main__":
     rating_df["feature_index"] = rating_df["feature"].replace(
         {"red": 1, "trees": 0, "prey": 2}
     )
-    rating_df = rating_df[rating_df["env"] == 3]
+
+        # Select environments to run up to
+    if int(args.env) > 0:
+        rating_df = rating_df[rating_df["env"] == int(args.env)]
+    else:
+        rating_df = rating_df[rating_df["env"] == 3]
 
     # Get subject IDs and parameter values
     run_params = pd.read_csv("data/IRL_runs.csv")
@@ -91,6 +113,11 @@ if __name__ == "__main__":
 
     # Where to save output
     irl_fit_output_dir = "data/irl_fits/{0}".format(experiment)
+
+    # Add in environment number if specified
+    if int(args.env) > 0:
+        irl_fit_output_dir = os.path.join(irl_fit_output_dir, "env_{0}".format(args.env))
+
     if not os.path.exists(irl_fit_output_dir):
         os.makedirs(irl_fit_output_dir)
 
@@ -163,7 +190,3 @@ if __name__ == "__main__":
             )
 
     print("MODEL FIT FINISHED")
-
-# TODO
-# IRL models already provided predictions for all subjects
-# Should just need to feed these predictions back into the model fitting code
